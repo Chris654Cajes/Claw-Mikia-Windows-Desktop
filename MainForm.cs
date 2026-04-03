@@ -61,10 +61,23 @@ namespace MusicVault
             BackColor = BG;
             DoubleBuffered = true;
             FormBorderStyle = FormBorderStyle.None;
-            MaximizedBounds = Screen.GetWorkingArea(this);
-            WindowState = FormWindowState.Maximized;
-
             BuildUI();
+
+            this.Load += (s, e) =>
+            {
+                var working = Screen.FromHandle(this.Handle).WorkingArea;
+                this.MaximizedBounds = working;
+                this.WindowState = FormWindowState.Maximized;
+            };
+
+            this.Resize += (s, e) =>
+            {
+                if (this.WindowState == FormWindowState.Maximized)
+                {
+                    this.Bounds = Screen.FromHandle(this.Handle).WorkingArea;
+                    this.MaximizedBounds = Screen.FromHandle(this.Handle).WorkingArea;
+                }
+            };
             LoadSavedSongs();
 
             timer = new Timer { Interval = 300 };
