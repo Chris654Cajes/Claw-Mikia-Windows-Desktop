@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
+using System.Runtime.InteropServices;
 using MusicVault.Models;
 using MusicVault.Services;
 
@@ -10,6 +11,15 @@ namespace MusicVault
 {
     public class MainForm : Form
     {
+        [DllImport("user32.dll")]
+        private static extern bool ReleaseCapture();
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
+
+        private const int WM_NCLBUTTONDOWN = 0xA1;
+        private const int HT_CAPTION = 0x2;
+
         private List<Song> songs = new();
         private Song? current;
         private AudioService audio = new();
@@ -27,9 +37,10 @@ namespace MusicVault
 
         private CustomListBox songList;
         private Label songTitle, albumLabel, timeLabel, statusLabel;
-        private PictureBox albumArt;
+        private RoundedPictureBox albumArt;
 
-        private NeonButton playPauseBtn, loopBtn, addFolderBtn, resetBtn;
+        private Button playPauseBtn, loopBtn;
+        private NeonButton addFolderBtn, resetBtn;
         private CustomTrackBar seekBar, volumeBar, pitchBar;
 
         private Timer timer;
@@ -47,10 +58,11 @@ namespace MusicVault
         public MainForm()
         {
             Text = "MusicVault PRO";
-            WindowState = FormWindowState.Maximized;
             BackColor = BG;
             DoubleBuffered = true;
             FormBorderStyle = FormBorderStyle.None;
+            MaximizedBounds = Screen.GetWorkingArea(this);
+            WindowState = FormWindowState.Maximized;
 
             BuildUI();
             LoadSavedSongs();
@@ -64,6 +76,101 @@ namespace MusicVault
 
         private void BuildUI()
         {
+            // CUSTOM TITLE BAR
+            var titleBar = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 30,
+                BackColor = BG
+            };
+
+            var titleLabel = new Label
+            {
+                Text = "🎵 MusicVault PRO",
+                ForeColor = ACCENT_PINK,
+                Font = new Font("Arial", 12, FontStyle.Bold),
+                AutoSize = true,
+                Left = 10,
+                Top = 5
+            };
+
+            var minimizeBtn = new Button
+            {
+                Text = "—",
+                Width = 30,
+                Height = 30,
+                FlatStyle = FlatStyle.Flat,
+                BackColor = BG,
+                ForeColor = Color.Magenta,
+                Font = new Font("Arial", 10, FontStyle.Bold)
+            };
+            minimizeBtn.FlatAppearance.BorderSize = 0;
+            minimizeBtn.Click += (s, e) => this.WindowState = FormWindowState.Minimized;
+
+            var maximizeBtn = new Button
+            {
+                Text = "□",
+                Width = 30,
+                Height = 30,
+                FlatStyle = FlatStyle.Flat,
+                BackColor = BG,
+                ForeColor = Color.Magenta,
+                Font = new Font("Arial", 10, FontStyle.Bold)
+            };
+            maximizeBtn.FlatAppearance.BorderSize = 0;
+            maximizeBtn.Click += (s, e) =>
+            {
+                if (this.WindowState == FormWindowState.Maximized)
+                {
+                    this.WindowState = FormWindowState.Normal;
+                }
+                else
+                {
+                    this.MaximizedBounds = Screen.GetWorkingArea(this);
+                    this.WindowState = FormWindowState.Maximized;
+                }
+                UpdateMaximizeButton(maximizeBtn);
+            };
+
+            var closeBtn = new Button
+            {
+                Text = "✕",
+                Width = 30,
+                Height = 30,
+                FlatStyle = FlatStyle.Flat,
+                BackColor = BG,
+                ForeColor = Color.Magenta,
+                Font = new Font("Arial", 10, FontStyle.Bold)
+            };
+            closeBtn.FlatAppearance.BorderSize = 0;
+            closeBtn.Click += (s, e) => this.Close();
+
+            titleBar.Controls.Add(titleLabel);
+            titleBar.Controls.Add(minimizeBtn);
+            titleBar.Controls.Add(maximizeBtn);
+            titleBar.Controls.Add(closeBtn);
+
+            // Position buttons on resize
+            titleBar.Resize += (s, e) =>
+            {
+                minimizeBtn.Left = titleBar.Width - 120;
+                maximizeBtn.Left = titleBar.Width - 80;
+                closeBtn.Left = titleBar.Width - 40;
+                UpdateMaximizeButton(maximizeBtn);
+            };
+
+            // Make title bar draggable (except on buttons)
+            titleBar.MouseDown += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Left && !minimizeBtn.Bounds.Contains(e.Location) && !maximizeBtn.Bounds.Contains(e.Location) && !closeBtn.Bounds.Contains(e.Location))
+                {
+                    ReleaseCapture();
+                    SendMessage(this.Handle, WM_NCLBUTTONDOWN, HT_CAPTION, 0);
+                }
+            };
+
+            Controls.Add(titleBar);
+
             // ROOT LAYOUT
             var root = new TableLayoutPanel
             {
@@ -144,7 +251,7 @@ namespace MusicVault
             };
 
             mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 240));
+            mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 280));
 
             // SONG LIST
             songList = new CustomListBox
@@ -161,6 +268,11 @@ namespace MusicVault
 
             root.Controls.Add(sidebar, 0, 0);
             root.Controls.Add(mainPanel, 1, 0);
+        }
+
+        private void UpdateMaximizeButton(Button maximizeBtn)
+        {
+            maximizeBtn.Text = this.WindowState == FormWindowState.Maximized ? "❐" : "□";
         }
 
         private Panel BuildPlayer()
@@ -183,32 +295,37 @@ namespace MusicVault
             var infoPanel = new Panel
             {
                 Left = 10,
-                Top = 10,
-                Width = 220,
-                Height = 220,
+                Top = 25,
+                Width = 150,
+                Height = 150,
                 BackColor = BG
             };
 
-            albumArt = new PictureBox
+            albumArt = new RoundedPictureBox
             {
                 Left = 0,
                 Top = 0,
-                Width = 220,
-                Height = 220,
-                BackgroundImage = CreatePlaceholderAlbumArt(220, 220),
+                Width = 150,
+                Height = 150,
+                BackgroundImage = CreatePlaceholderAlbumArt(150, 150),
                 BackgroundImageLayout = ImageLayout.Stretch,
-                BorderStyle = BorderStyle.None
+                BorderStyle = BorderStyle.None,
+                CornerRadius = 15
             };
 
             infoPanel.Controls.Add(albumArt);
             panel.Controls.Add(infoPanel);
 
+            // Calculate available width for right side elements
+            int rightStartX = 240;
+            int availableWidth = panel.Width - rightStartX - 20;
+
             // Title and Album
             songTitle = new Label
             {
-                Left = 240,
+                Left = rightStartX,
                 Top = 15,
-                Width = 400,
+                Width = availableWidth,
                 Height = 40,
                 Text = "No song playing",
                 Font = new Font("Arial", 16, FontStyle.Bold),
@@ -218,9 +335,9 @@ namespace MusicVault
 
             albumLabel = new Label
             {
-                Left = 240,
+                Left = rightStartX,
                 Top = 55,
-                Width = 400,
+                Width = availableWidth,
                 Height = 25,
                 Text = "Unknown Album",
                 Font = new Font("Segoe UI", 11),
@@ -231,7 +348,7 @@ namespace MusicVault
             // TIME LABEL
             timeLabel = new Label
             {
-                Left = 240,
+                Left = rightStartX,
                 Top = 85,
                 Width = 200,
                 Height = 20,
@@ -243,24 +360,114 @@ namespace MusicVault
             // SEEK BAR
             seekBar = new CustomTrackBar
             {
-                Left = 240,
+                Left = rightStartX,
                 Top = 110,
-                Width = 500
+                Width = availableWidth
             };
             seekBar.Scroll += (s, e) => audio.Seek(seekBar.Value);
 
             // PLAYBACK BUTTONS
-            playPauseBtn = CreateNeonButton("▶ PLAY", ACCENT_GREEN, 50, 150);
-            playPauseBtn.Click += PlayPauseClick;
+            var previousBtn = new CircularButton
+            {
+                Icon = "⏮",
+                NeonColor = ACCENT_CYAN,
+                BackColor = BG,
+                Font = new Font("Arial", 14, FontStyle.Bold),
+                Width = 60,
+                Height = 60,
+                Left = rightStartX,
+                Top = 140,
+                FlatStyle = FlatStyle.Flat
+            };
+            previousBtn.FlatAppearance.BorderSize = 0;
+            previousBtn.Click += PreviousSongClick;
+            panel.Controls.Add(previousBtn);
 
-            loopBtn = CreateNeonButton("NORMAL", ACCENT_YELLOW, 110, 150);
+            var rewindBtn = new CircularButton
+            {
+                Icon = "⏪",
+                NeonColor = ACCENT_BLUE,
+                BackColor = BG,
+                Font = new Font("Arial", 14, FontStyle.Bold),
+                Width = 60,
+                Height = 60,
+                Left = rightStartX + 70,
+                Top = 140,
+                FlatStyle = FlatStyle.Flat
+            };
+            rewindBtn.FlatAppearance.BorderSize = 0;
+            rewindBtn.Click += RewindClick;
+            panel.Controls.Add(rewindBtn);
+
+            playPauseBtn = new CircularButton
+            {
+                Icon = "▶",
+                NeonColor = ACCENT_GREEN,
+                BackColor = BG,
+                Font = new Font("Arial", 16, FontStyle.Bold),
+                Width = 60,
+                Height = 60,
+                Left = rightStartX + 140,
+                Top = 140,
+                FlatStyle = FlatStyle.Flat
+            };
+            playPauseBtn.FlatAppearance.BorderSize = 0;
+            playPauseBtn.Click += PlayPauseClick;
+            panel.Controls.Add(playPauseBtn);
+
+            var fastforwardBtn = new CircularButton
+            {
+                Icon = "⏩",
+                NeonColor = ACCENT_BLUE,
+                BackColor = BG,
+                Font = new Font("Arial", 14, FontStyle.Bold),
+                Width = 60,
+                Height = 60,
+                Left = rightStartX + 210,
+                Top = 140,
+                FlatStyle = FlatStyle.Flat
+            };
+            fastforwardBtn.FlatAppearance.BorderSize = 0;
+            fastforwardBtn.Click += FastForwardClick;
+            panel.Controls.Add(fastforwardBtn);
+
+            var nextBtn = new CircularButton
+            {
+                Icon = "⏭",
+                NeonColor = ACCENT_CYAN,
+                BackColor = BG,
+                Font = new Font("Arial", 14, FontStyle.Bold),
+                Width = 60,
+                Height = 60,
+                Left = rightStartX + 280,
+                Top = 140,
+                FlatStyle = FlatStyle.Flat
+            };
+            nextBtn.FlatAppearance.BorderSize = 0;
+            nextBtn.Click += NextSongClick;
+            panel.Controls.Add(nextBtn);
+
+            loopBtn = new CircularButton
+            {
+                Icon = "⟲",
+                NeonColor = ACCENT_YELLOW,
+                BackColor = BG,
+                Font = new Font("Arial", 14, FontStyle.Bold),
+                Width = 60,
+                Height = 60,
+                Left = rightStartX + 350,
+                Top = 140,
+                FlatStyle = FlatStyle.Flat
+            };
+            loopBtn.FlatAppearance.BorderSize = 0;
             loopBtn.Click += LoopClick;
+            panel.Controls.Add(loopBtn);
 
             // VOLUME
             var volLabel = new Label
             {
-                Left = 620,
-                Top = 150,
+                Left = rightStartX,
+                Top = 210,
                 Width = 60,
                 Height = 20,
                 Text = "VOL",
@@ -270,8 +477,8 @@ namespace MusicVault
 
             volumeBar = new CustomTrackBar
             {
-                Left = 620,
-                Top = 170,
+                Left = rightStartX,
+                Top = 230,
                 Width = 100,
                 Minimum = 0,
                 Maximum = 100,
@@ -285,19 +492,19 @@ namespace MusicVault
             // PITCH
             var pitchLabel = new Label
             {
-                Left = 750,
-                Top = 150,
+                Left = rightStartX + 110,
+                Top = 210,
                 Width = 60,
                 Height = 20,
                 Text = "PITCH",
                 Font = new Font("Segoe UI", 9),
-                ForeColor = ACCENT_BLUE
+                ForeColor = ACCENT_PURPLE
             };
 
             pitchBar = new CustomTrackBar
             {
-                Left = 750,
-                Top = 170,
+                Left = rightStartX + 110,
+                Top = 230,
                 Width = 100,
                 Minimum = -6,
                 Maximum = 6,
@@ -309,12 +516,22 @@ namespace MusicVault
             panel.Controls.Add(albumLabel);
             panel.Controls.Add(timeLabel);
             panel.Controls.Add(seekBar);
-            panel.Controls.Add(playPauseBtn);
-            panel.Controls.Add(loopBtn);
             panel.Controls.Add(volLabel);
             panel.Controls.Add(volumeBar);
             panel.Controls.Add(pitchLabel);
             panel.Controls.Add(pitchBar);
+
+            // Handle resize to adjust element sizes
+            panel.Resize += (s, e) =>
+            {
+                int newAvailableWidth = panel.Width - rightStartX - 20;
+                if (newAvailableWidth > 100)
+                {
+                    songTitle.Width = newAvailableWidth;
+                    albumLabel.Width = newAvailableWidth;
+                    seekBar.Width = newAvailableWidth;
+                }
+            };
 
             return panel;
         }
@@ -433,7 +650,8 @@ namespace MusicVault
             seekBar.Maximum = (int)audio.Duration;
             songTitle.Text = current.Title;
             albumLabel.Text = current.Album ?? "Unknown Album";
-            playPauseBtn.Text = "⏸ PAUSE";
+            ((CircularButton)playPauseBtn).Icon = "⏸";
+            playPauseBtn.Invalidate();
             statusLabel.Text = "Now Playing";
             songList.Invalidate();
         }
@@ -443,13 +661,15 @@ namespace MusicVault
             if (audio.IsPlaying)
             {
                 audio.Pause();
-                playPauseBtn.Text = "▶ PLAY";
+                ((CircularButton)playPauseBtn).Icon = "▶";
+                playPauseBtn.Invalidate();
                 statusLabel.Text = "Paused";
             }
             else
             {
                 audio.Resume();
-                playPauseBtn.Text = "⏸ PAUSE";
+                ((CircularButton)playPauseBtn).Icon = "⏸";
+                playPauseBtn.Invalidate();
                 statusLabel.Text = "Playing";
             }
         }
@@ -458,14 +678,52 @@ namespace MusicVault
         {
             mode = (PlayMode)(((int)mode + 1) % 4);
 
-            loopBtn.Text = mode switch
+            var circularBtn = (CircularButton)loopBtn;
+            circularBtn.Icon = mode switch
             {
-                PlayMode.Normal => "NORMAL",
-                PlayMode.RepeatOne => "LOOP 1",
-                PlayMode.RepeatAll => "LOOP ALL",
-                PlayMode.NoAutoNext => "NO AUTO",
-                _ => "MODE"
+                PlayMode.Normal => "⟲",
+                PlayMode.RepeatOne => "①",
+                PlayMode.RepeatAll => "🔁",
+                PlayMode.NoAutoNext => "⊘",
+                _ => "⟲"
             };
+            loopBtn.Invalidate();
+        }
+
+        private void RewindClick(object? s, EventArgs e)
+        {
+            if (current != null)
+            {
+                long newPosition = Math.Max(0, (long)audio.Position - 5000);
+                audio.Seek(newPosition);
+            }
+        }
+
+        private void FastForwardClick(object? s, EventArgs e)
+        {
+            if (current != null)
+            {
+                long newPosition = Math.Min((long)audio.Duration, (long)audio.Position + 5000);
+                audio.Seek(newPosition);
+            }
+        }
+
+        private void PreviousSongClick(object? s, EventArgs e)
+        {
+            if (songList.SelectedIndex > 0)
+            {
+                songList.SelectedIndex--;
+                PlaySelected(null, EventArgs.Empty);
+            }
+        }
+
+        private void NextSongClick(object? s, EventArgs e)
+        {
+            if (songList.SelectedIndex < songList.Items.Count - 1)
+            {
+                songList.SelectedIndex++;
+                PlaySelected(null, EventArgs.Empty);
+            }
         }
 
         private void UpdateUI(object? s, EventArgs e)
@@ -561,6 +819,89 @@ namespace MusicVault
         {
             base.OnMouseLeave(e);
             BackColor = Color.FromArgb(20, 20, 20);
+            Invalidate();
+        }
+    }
+
+    public class CircularButton : Button
+    {
+        public Color NeonColor { get; set; } = Color.Cyan;
+        public string Icon { get; set; } = "▶";
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.Clear(BackColor);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+            int size = Math.Min(Width, Height);
+            int x = (Width - size) / 2;
+            int y = (Height - size) / 2;
+
+            // Draw circle border
+            using (var pen = new Pen(NeonColor, 2))
+            {
+                e.Graphics.DrawEllipse(pen, x, y, size - 1, size - 1);
+            }
+
+            // Draw inner glow
+            using (var pen = new Pen(Color.FromArgb(100, NeonColor.R, NeonColor.G, NeonColor.B), 1))
+            {
+                e.Graphics.DrawEllipse(pen, x + 2, y + 2, size - 5, size - 5);
+            }
+
+            // Draw icon
+            using (var brush = new SolidBrush(NeonColor))
+            {
+                var textSize = e.Graphics.MeasureString(Icon, Font);
+                var iconX = (Width - textSize.Width) / 2;
+                var iconY = (Height - textSize.Height) / 2;
+                e.Graphics.DrawString(Icon, Font, brush, iconX, iconY);
+            }
+        }
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            base.OnMouseEnter(e);
+            BackColor = Color.FromArgb(40, 40, 40);
+            Invalidate();
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            BackColor = Color.FromArgb(20, 20, 20);
+            Invalidate();
+        }
+    }
+
+    public class RoundedPictureBox : PictureBox
+    {
+        public int CornerRadius { get; set; } = 10;
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var gp = new GraphicsPath();
+            gp.AddArc(0, 0, CornerRadius, CornerRadius, 180, 90);
+            gp.AddArc(Width - CornerRadius, 0, CornerRadius, CornerRadius, 270, 90);
+            gp.AddArc(Width - CornerRadius, Height - CornerRadius, CornerRadius, CornerRadius, 0, 90);
+            gp.AddArc(0, Height - CornerRadius, CornerRadius, CornerRadius, 90, 90);
+            gp.CloseFigure();
+
+            this.Region = new Region(gp);
+
+            if (BackgroundImage != null)
+            {
+                e.Graphics.DrawImage(BackgroundImage, 0, 0, Width, Height);
+            }
+            else
+            {
+                e.Graphics.Clear(BackColor);
+            }
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
             Invalidate();
         }
     }
