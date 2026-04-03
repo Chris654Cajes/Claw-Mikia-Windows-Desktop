@@ -231,6 +231,28 @@ namespace MusicVault
                 Margin = new Padding(0, 0, 0, 20)
             };
 
+            // Search Box
+            var searchLabel = new Label
+            {
+                Text = "Search Songs",
+                Font = new Font("Segoe UI", 9, FontStyle.Bold),
+                ForeColor = ACCENT_CYAN,
+                AutoSize = true,
+                Margin = new Padding(0, 0, 0, 5)
+            };
+
+            var searchBox = new TextBox
+            {
+                Font = new Font("Segoe UI", 10),
+                ForeColor = Color.White,
+                BackColor = Color.FromArgb(40, 40, 40),
+                BorderStyle = BorderStyle.FixedSingle,
+                Width = 250,
+                Height = 30,
+                Margin = new Padding(0, 0, 0, 10)
+            };
+            searchBox.TextChanged += SearchSongs;
+
             addFolderBtn = CreateNeonButton("📁 Add Folder", ACCENT_PURPLE);
             addFolderBtn.Click += AddFolderClick;
             addFolderBtn.Margin = new Padding(0, 10, 0, 10);
@@ -249,6 +271,8 @@ namespace MusicVault
             };
 
             sidebarFlow.Controls.Add(logoLabel);
+            sidebarFlow.Controls.Add(searchLabel);
+            sidebarFlow.Controls.Add(searchBox);
             sidebarFlow.Controls.Add(addFolderBtn);
             sidebarFlow.Controls.Add(resetBtn);
             sidebarFlow.Controls.Add(statusLabel);
@@ -304,82 +328,152 @@ namespace MusicVault
                 }
             };
 
-            // Album Art + Now Playing Info
-            var infoPanel = new Panel
+            // Now Playing Section - Organized Layout
+            var nowPlayingPanel = new TableLayoutPanel
             {
                 Left = 10,
                 Top = 25,
-                Width = 150,
+                Width = panel.Width - 20,
                 Height = 150,
-                BackColor = BG
+                BackColor = BG,
+                ColumnCount = 2,
+                RowCount = 2
+            };
+
+            // Configure columns: Left (30%), Right (70%)
+            nowPlayingPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30));
+            nowPlayingPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 70));
+            
+            // Configure rows: Top (60%), Bottom (40%)
+            nowPlayingPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 60));
+            nowPlayingPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 40));
+
+            // Album Art Section (Top Left)
+            var albumPanel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = BG,
+                Padding = new Padding(10)
             };
 
             albumArt = new RoundedPictureBox
             {
-                Left = 0,
-                Top = 0,
-                Width = 150,
-                Height = 150,
+                Dock = DockStyle.Fill,
                 BackgroundImage = CreatePlaceholderAlbumArt(150, 150),
                 BackgroundImageLayout = ImageLayout.Stretch,
                 BorderStyle = BorderStyle.None,
                 CornerRadius = 15
             };
 
-            infoPanel.Controls.Add(albumArt);
-            panel.Controls.Add(infoPanel);
+            albumPanel.Controls.Add(albumArt);
+            nowPlayingPanel.Controls.Add(albumPanel, 0, 0);
 
-            // Calculate available width for right side elements
-            int rightStartX = 240;
-            int availableWidth = panel.Width - rightStartX - 20;
+            // Info Section (Top Right)
+            var infoPanel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = BG,
+                ColumnCount = 1,
+                RowCount = 3,
+                Padding = new Padding(10)
+            };
 
-            // Title and Album
+            infoPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            infoPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 40));
+            infoPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 30));
+            infoPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 30));
+
+            // Title
             songTitle = new Label
             {
-                Left = rightStartX,
-                Top = 15,
-                Width = availableWidth,
-                Height = 40,
+                Dock = DockStyle.Fill,
                 Text = "No song playing",
                 Font = new Font("Arial", 16, FontStyle.Bold),
                 ForeColor = ACCENT_PINK,
-                AutoEllipsis = true
+                AutoEllipsis = true,
+                TextAlign = ContentAlignment.MiddleLeft
             };
 
+            // Album
             albumLabel = new Label
             {
-                Left = rightStartX,
-                Top = 55,
-                Width = availableWidth,
-                Height = 25,
+                Dock = DockStyle.Fill,
                 Text = "Unknown Album",
                 Font = new Font("Segoe UI", 11),
                 ForeColor = ACCENT_CYAN,
-                AutoEllipsis = true
+                AutoEllipsis = true,
+                TextAlign = ContentAlignment.MiddleLeft
             };
 
-            // TIME LABEL
+            // Time Label
             timeLabel = new Label
             {
-                Left = rightStartX,
-                Top = 85,
-                Width = 200,
-                Height = 20,
+                Dock = DockStyle.Fill,
                 Text = "00:00 / 00:00",
                 Font = new Font("Courier New", 10),
-                ForeColor = ACCENT_GREEN
+                ForeColor = ACCENT_GREEN,
+                TextAlign = ContentAlignment.MiddleLeft
             };
 
-            // SEEK BAR
+            infoPanel.Controls.Add(songTitle, 0, 0);
+            infoPanel.Controls.Add(albumLabel, 0, 1);
+            infoPanel.Controls.Add(timeLabel, 0, 2);
+
+            nowPlayingPanel.Controls.Add(infoPanel, 1, 0);
+
+            // Seek Bar Section (Bottom - spans both columns)
+            var seekPanel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = BG,
+                Padding = new Padding(10)
+            };
+
             seekBar = new CustomTrackBar
             {
-                Left = rightStartX,
-                Top = 110,
-                Width = availableWidth
+                Dock = DockStyle.Fill,
+                Minimum = 0,
+                Maximum = 100,
+                Value = 0
             };
             seekBar.Scroll += (s, e) => audio.Seek(seekBar.Value);
 
-            // PLAYBACK BUTTONS
+            seekPanel.Controls.Add(seekBar);
+            nowPlayingPanel.Controls.Add(seekPanel, 0, 1);
+            nowPlayingPanel.SetColumnSpan(seekPanel, 2);
+
+            panel.Controls.Add(nowPlayingPanel);
+
+            // Playback Controls Section
+            var controlsSection = new TableLayoutPanel
+            {
+                Left = 10,
+                Top = 185,
+                Width = panel.Width - 20,
+                Height = 120,
+                BackColor = BG,
+                ColumnCount = 3,
+                RowCount = 2
+            };
+
+            // Configure columns: Playback buttons (60%), Volume (20%), Pitch (20%)
+            controlsSection.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 60));
+            controlsSection.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20));
+            controlsSection.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20));
+            controlsSection.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+            controlsSection.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+
+            // Playback Buttons Panel
+            var playbackPanel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight,
+                BackColor = BG,
+                Padding = new Padding(10),
+                WrapContents = false,
+                AutoSize = false
+            };
+
             var previousBtn = new CircularButton
             {
                 Icon = "⏮",
@@ -388,13 +482,11 @@ namespace MusicVault
                 Font = new Font("Arial", 14, FontStyle.Bold),
                 Width = 60,
                 Height = 60,
-                Left = rightStartX,
-                Top = 140,
                 FlatStyle = FlatStyle.Flat
             };
             previousBtn.FlatAppearance.BorderSize = 0;
             previousBtn.Click += PreviousSongClick;
-            panel.Controls.Add(previousBtn);
+            playbackPanel.Controls.Add(previousBtn);
 
             var rewindBtn = new CircularButton
             {
@@ -404,13 +496,11 @@ namespace MusicVault
                 Font = new Font("Arial", 14, FontStyle.Bold),
                 Width = 60,
                 Height = 60,
-                Left = rightStartX + 70,
-                Top = 140,
                 FlatStyle = FlatStyle.Flat
             };
             rewindBtn.FlatAppearance.BorderSize = 0;
             rewindBtn.Click += RewindClick;
-            panel.Controls.Add(rewindBtn);
+            playbackPanel.Controls.Add(rewindBtn);
 
             playPauseBtn = new CircularButton
             {
@@ -420,13 +510,11 @@ namespace MusicVault
                 Font = new Font("Arial", 16, FontStyle.Bold),
                 Width = 60,
                 Height = 60,
-                Left = rightStartX + 140,
-                Top = 140,
                 FlatStyle = FlatStyle.Flat
             };
             playPauseBtn.FlatAppearance.BorderSize = 0;
             playPauseBtn.Click += PlayPauseClick;
-            panel.Controls.Add(playPauseBtn);
+            playbackPanel.Controls.Add(playPauseBtn);
 
             var fastforwardBtn = new CircularButton
             {
@@ -436,13 +524,11 @@ namespace MusicVault
                 Font = new Font("Arial", 14, FontStyle.Bold),
                 Width = 60,
                 Height = 60,
-                Left = rightStartX + 210,
-                Top = 140,
                 FlatStyle = FlatStyle.Flat
             };
             fastforwardBtn.FlatAppearance.BorderSize = 0;
             fastforwardBtn.Click += FastForwardClick;
-            panel.Controls.Add(fastforwardBtn);
+            playbackPanel.Controls.Add(fastforwardBtn);
 
             var nextBtn = new CircularButton
             {
@@ -452,13 +538,11 @@ namespace MusicVault
                 Font = new Font("Arial", 14, FontStyle.Bold),
                 Width = 60,
                 Height = 60,
-                Left = rightStartX + 280,
-                Top = 140,
                 FlatStyle = FlatStyle.Flat
             };
             nextBtn.FlatAppearance.BorderSize = 0;
             nextBtn.Click += NextSongClick;
-            panel.Controls.Add(nextBtn);
+            playbackPanel.Controls.Add(nextBtn);
 
             loopBtn = new CircularButton
             {
@@ -468,31 +552,36 @@ namespace MusicVault
                 Font = new Font("Arial", 14, FontStyle.Bold),
                 Width = 60,
                 Height = 60,
-                Left = rightStartX + 350,
-                Top = 140,
                 FlatStyle = FlatStyle.Flat
             };
             loopBtn.FlatAppearance.BorderSize = 0;
             loopBtn.Click += LoopClick;
-            panel.Controls.Add(loopBtn);
+            playbackPanel.Controls.Add(loopBtn);
 
-            // VOLUME
+            controlsSection.Controls.Add(playbackPanel, 0, 0);
+
+            // Volume Panel
+            var volumePanel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = BG,
+                ColumnCount = 1,
+                RowCount = 2,
+                Padding = new Padding(10)
+            };
+
             var volLabel = new Label
             {
-                Left = rightStartX,
-                Top = 210,
-                Width = 60,
-                Height = 20,
-                Text = "VOL",
-                Font = new Font("Segoe UI", 9),
-                ForeColor = ACCENT_ORANGE
+                Dock = DockStyle.Fill,
+                Text = "VOLUME",
+                Font = new Font("Segoe UI", 9, FontStyle.Bold),
+                ForeColor = ACCENT_ORANGE,
+                TextAlign = ContentAlignment.MiddleCenter
             };
 
             volumeBar = new CustomTrackBar
             {
-                Left = rightStartX,
-                Top = 230,
-                Width = 100,
+                Dock = DockStyle.Fill,
                 Minimum = 0,
                 Maximum = 100,
                 Value = 100
@@ -502,48 +591,51 @@ namespace MusicVault
                 audio.Volume = volumeBar.Value / 100f;
             };
 
-            // PITCH
+            volumePanel.Controls.Add(volLabel, 0, 0);
+            volumePanel.Controls.Add(volumeBar, 0, 1);
+
+            controlsSection.Controls.Add(volumePanel, 1, 0);
+
+            // Pitch Panel
+            var pitchPanel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = BG,
+                ColumnCount = 1,
+                RowCount = 2,
+                Padding = new Padding(10)
+            };
+
             var pitchLabel = new Label
             {
-                Left = rightStartX + 110,
-                Top = 210,
-                Width = 60,
-                Height = 20,
+                Dock = DockStyle.Fill,
                 Text = "PITCH",
-                Font = new Font("Segoe UI", 9),
-                ForeColor = ACCENT_PURPLE
+                Font = new Font("Segoe UI", 9, FontStyle.Bold),
+                ForeColor = ACCENT_PURPLE,
+                TextAlign = ContentAlignment.MiddleCenter
             };
 
             pitchBar = new CustomTrackBar
             {
-                Left = rightStartX + 110,
-                Top = 230,
-                Width = 100,
+                Dock = DockStyle.Fill,
                 Minimum = -6,
                 Maximum = 6,
                 Value = 0
             };
             pitchBar.Scroll += (s, e) => audio.SetPitch(pitchBar.Value);
 
-            panel.Controls.Add(songTitle);
-            panel.Controls.Add(albumLabel);
-            panel.Controls.Add(timeLabel);
-            panel.Controls.Add(seekBar);
-            panel.Controls.Add(volLabel);
-            panel.Controls.Add(volumeBar);
-            panel.Controls.Add(pitchLabel);
-            panel.Controls.Add(pitchBar);
+            pitchPanel.Controls.Add(pitchLabel, 0, 0);
+            pitchPanel.Controls.Add(pitchBar, 0, 1);
+
+            controlsSection.Controls.Add(pitchPanel, 2, 0);
+
+            panel.Controls.Add(controlsSection);
 
             // Handle resize to adjust element sizes
             panel.Resize += (s, e) =>
             {
-                int newAvailableWidth = panel.Width - rightStartX - 20;
-                if (newAvailableWidth > 100)
-                {
-                    songTitle.Width = newAvailableWidth;
-                    albumLabel.Width = newAvailableWidth;
-                    seekBar.Width = newAvailableWidth;
-                }
+                nowPlayingPanel.Width = panel.Width - 20;
+                controlsSection.Width = panel.Width - 20;
             };
 
             return panel;
@@ -784,6 +876,28 @@ namespace MusicVault
         {
             audio.Dispose();
             base.Dispose(disposing);
+        }
+
+        private void SearchSongs(object? sender, EventArgs e)
+        {
+            var textBox = sender as TextBox;
+            if (textBox == null) return;
+
+            var searchText = textBox.Text.ToLower();
+            
+            // Clear current list
+            songList.Items.Clear();
+            
+            // Filter and add songs
+            foreach (var song in songs)
+            {
+                if (string.IsNullOrEmpty(searchText) || 
+                    song.Title.ToLower().Contains(searchText) ||
+                    (song.Album?.ToLower().Contains(searchText) ?? false))
+                {
+                    songList.Items.Add(song);
+                }
+            }
         }
     }
 
