@@ -12,6 +12,12 @@ namespace MusicVault
 {
     public class MainForm : Form
     {
+        [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
+        private static extern int SetWindowTheme(IntPtr hWnd, string pszSubAppName, string? pszSubIdList);
+
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
         [DllImport("user32.dll")]
         private static extern bool ReleaseCapture();
 
@@ -20,6 +26,7 @@ namespace MusicVault
 
         private const int WM_NCLBUTTONDOWN = 0xA1;
         private const int HT_CAPTION = 0x2;
+        private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
 
         private List<Song> songs = new();
         private Song? current;
@@ -108,7 +115,7 @@ namespace MusicVault
 
         public MainForm()
         {
-            Text = "MusicVault PRO";
+            Text = "Claw Mikia PRO";
             BackColor = BG;
             DoubleBuffered = true;
             FormBorderStyle = FormBorderStyle.None;
@@ -120,6 +127,10 @@ namespace MusicVault
                 var working = Screen.FromHandle(this.Handle).WorkingArea;
                 this.MaximizedBounds = working;
                 this.WindowState = FormWindowState.Maximized;
+                
+                // Apply dark theme to title bar and controls
+                ApplyDarkTheme(this.Handle);
+                ApplyThemeToControls(this);
             };
 
             this.Resize += (s, e) =>
@@ -140,6 +151,35 @@ namespace MusicVault
             audio.PlaybackStopped += HandlePlaybackFinished;
         }
 
+        private void ApplyDarkTheme(IntPtr handle)
+        {
+            int darkMode = 1;
+            DwmSetWindowAttribute(handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkMode, sizeof(int));
+        }
+
+        private void ApplyThemeToControls(Control parent)
+        {
+            foreach (Control ctrl in parent.Controls)
+            {
+                // Apply dark theme to common controls that support it via uxtheme
+                if (ctrl is ListBox || ctrl is TextBox || ctrl is ListView || ctrl is TreeView || ctrl is ComboBox)
+                {
+                    SetWindowTheme(ctrl.Handle, "DarkMode_Explorer", null);
+                }
+                
+                // Panels and FlowLayoutPanels can also have scrollbars
+                if (ctrl is Panel || ctrl is FlowLayoutPanel || ctrl is ContainerControl)
+                {
+                    SetWindowTheme(ctrl.Handle, "DarkMode_Explorer", null);
+                }
+                
+                if (ctrl.HasChildren)
+                {
+                    ApplyThemeToControls(ctrl);
+                }
+            }
+        }
+
         private void BuildUI()
         {
             // CUSTOM TITLE BAR
@@ -152,7 +192,7 @@ namespace MusicVault
 
             var titleLabel = new Label
             {
-                Text = "🎵 MusicVault PRO",
+                Text = "🎵 Claw Mikia PRO",
                 ForeColor = ACCENT_PINK,
                 Font = new Font("Arial", 12, FontStyle.Bold),
                 AutoSize = true,
@@ -236,7 +276,8 @@ namespace MusicVault
             var sidebar = new Panel
             {
                 Dock = DockStyle.Fill,
-                BackColor = BG
+                BackColor = BG,
+                MinimumSize = new Size(200, 0)
             };
 
             sidebar.Paint += (s, e) =>
@@ -253,12 +294,19 @@ namespace MusicVault
                 FlowDirection = FlowDirection.TopDown,
                 BackColor = BG,
                 Padding = new Padding(15),
-                AutoScroll = true
+                AutoScroll = true,
+                WrapContents = false // Ensure it stays as a column
+            };
+            sidebarFlow.Resize += (s, e) => {
+                foreach (Control ctrl in sidebarFlow.Controls)
+                {
+                    ctrl.Width = sidebarFlow.ClientSize.Width - sidebarFlow.Padding.Horizontal - 5;
+                }
             };
 
             var logoLabel = new Label
             {
-                Text = "🎵 VAULT",
+                Text = "🎵 Libraries",
                 Font = new Font("Arial Black", 14, FontStyle.Bold),
                 ForeColor = ACCENT_PINK,
                 AutoSize = true,
@@ -322,7 +370,7 @@ namespace MusicVault
             };
 
             mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 280));
+            mainPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 200)); // More compact player
 
             // SONG LIST
             songList = new CustomListBox
@@ -373,8 +421,8 @@ namespace MusicVault
                 Padding = new Padding(10, 10, 10, 10)
             };
 
-            playerContainer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
-            playerContainer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            playerContainer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160)); // Fixed width for album art
+            playerContainer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); // Flexible width for controls
 
             // Album Art Section (Left)
             var albumPanel = new Panel
@@ -388,11 +436,17 @@ namespace MusicVault
             {
                 Width = 140,
                 Height = 140,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left,
+                Anchor = AnchorStyles.None, // Center the album art
                 BackgroundImage = CreatePlaceholderAlbumArt(140, 140),
                 BackgroundImageLayout = ImageLayout.Stretch,
                 BorderStyle = BorderStyle.None,
                 CornerRadius = 15
+            };
+            
+            // Re-center albumArt when albumPanel resizes
+            albumPanel.Resize += (s, e) => {
+                albumArt.Left = (albumPanel.Width - albumArt.Width) / 2;
+                albumArt.Top = (albumPanel.Height - albumArt.Height) / 2;
             };
 
             albumPanel.Controls.Add(albumArt);
@@ -509,6 +563,13 @@ namespace MusicVault
                 Padding = new Padding(5, 0, 5, 0),
                 WrapContents = false,
                 AutoSize = false
+            };
+            
+            // Re-center playback controls on resize
+            playbackPanel.Resize += (s, e) => {
+                int totalWidth = playbackPanel.Controls.Count * 45; // Approx width
+                int paddingLeft = Math.Max(0, (playbackPanel.Width - totalWidth) / 2);
+                playbackPanel.Padding = new Padding(paddingLeft, 0, 0, 0);
             };
 
             var btnSize = 40;
