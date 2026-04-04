@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Linq;
 using System.Windows.Forms;
 using System.Runtime.InteropServices;
 using MusicVault.Models;
@@ -42,6 +43,8 @@ namespace MusicVault
         private Button playPauseBtn, loopBtn;
         private NeonButton addFolderBtn, resetBtn;
         private CustomTrackBar seekBar, volumeBar, pitchBar;
+        private CustomTrackBar trimStartBar, trimEndBar;
+        private Label trimStartLabel, trimEndLabel;
 
         private Timer timer;
 
@@ -54,6 +57,54 @@ namespace MusicVault
         }
 
         private PlayMode mode = PlayMode.Normal;
+        private bool isChangingSong = false;
+
+        protected override void WndProc(ref Message m)
+        {
+            const int WM_NCHITTEST = 0x84;
+            const int HTCLIENT = 0x1;
+            const int HTCAPTION = 0x2;
+            const int HTLEFT = 10;
+            const int HTRIGHT = 11;
+            const int HTTOP = 12;
+            const int HTTOPLEFT = 13;
+            const int HTTOPRIGHT = 14;
+            const int HTBOTTOM = 15;
+            const int HTBOTTOMLEFT = 16;
+            const int HTBOTTOMRIGHT = 17;
+
+            if (m.Msg == WM_NCHITTEST)
+            {
+                base.WndProc(ref m);
+                if ((int)m.Result == HTCLIENT)
+                {
+                    Point cursor = this.PointToClient(Cursor.Position);
+
+                    // Resize border thickness
+                    int border = 8;
+
+                    if (this.WindowState != FormWindowState.Maximized)
+                    {
+                        if (cursor.X <= border && cursor.Y <= border) m.Result = (IntPtr)HTTOPLEFT;
+                        else if (cursor.X >= this.Width - border && cursor.Y <= border) m.Result = (IntPtr)HTTOPRIGHT;
+                        else if (cursor.X <= border && cursor.Y >= this.Height - border) m.Result = (IntPtr)HTBOTTOMLEFT;
+                        else if (cursor.X >= this.Width - border && cursor.Y >= this.Height - border) m.Result = (IntPtr)HTBOTTOMRIGHT;
+                        else if (cursor.X <= border) m.Result = (IntPtr)HTLEFT;
+                        else if (cursor.X >= this.Width - border) m.Result = (IntPtr)HTRIGHT;
+                        else if (cursor.Y <= border) m.Result = (IntPtr)HTTOP;
+                        else if (cursor.Y >= this.Height - border) m.Result = (IntPtr)HTBOTTOM;
+                        else if (cursor.Y <= 40) m.Result = (IntPtr)HTCAPTION;
+                    }
+                    else
+                    {
+                        if (cursor.Y <= 40) m.Result = (IntPtr)HTCAPTION;
+                    }
+                }
+                return;
+            }
+
+            base.WndProc(ref m);
+        }
 
         public MainForm()
         {
@@ -61,6 +112,7 @@ namespace MusicVault
             BackColor = BG;
             DoubleBuffered = true;
             FormBorderStyle = FormBorderStyle.None;
+            
             BuildUI();
 
             this.Load += (s, e) =>
@@ -78,6 +130,7 @@ namespace MusicVault
                     this.MaximizedBounds = Screen.FromHandle(this.Handle).WorkingArea;
                 }
             };
+
             LoadSavedSongs();
 
             timer = new Timer { Interval = 300 };
@@ -93,7 +146,7 @@ namespace MusicVault
             var titleBar = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 30,
+                Height = 40,
                 BackColor = BG
             };
 
@@ -104,78 +157,57 @@ namespace MusicVault
                 Font = new Font("Arial", 12, FontStyle.Bold),
                 AutoSize = true,
                 Left = 10,
-                Top = 5
+                Top = 10
             };
 
             var minimizeBtn = new Button
             {
                 Text = "—",
-                Width = 30,
+                Width = 45,
                 Height = 30,
                 FlatStyle = FlatStyle.Flat,
                 BackColor = BG,
                 ForeColor = Color.Magenta,
-                Font = new Font("Arial", 10, FontStyle.Bold)
+                Font = new Font("Arial", 10, FontStyle.Bold),
+                Margin = Padding.Empty
             };
             minimizeBtn.FlatAppearance.BorderSize = 0;
             minimizeBtn.Click += (s, e) => this.WindowState = FormWindowState.Minimized;
 
-            var maximizeBtn = new Button
-            {
-                Text = "□",
-                Width = 30,
-                Height = 30,
-                FlatStyle = FlatStyle.Flat,
-                BackColor = BG,
-                ForeColor = Color.Magenta,
-                Font = new Font("Arial", 10, FontStyle.Bold)
-            };
-            maximizeBtn.FlatAppearance.BorderSize = 0;
-            maximizeBtn.Click += (s, e) =>
-            {
-                if (this.WindowState == FormWindowState.Maximized)
-                {
-                    this.WindowState = FormWindowState.Normal;
-                }
-                else
-                {
-                    this.MaximizedBounds = Screen.GetWorkingArea(this);
-                    this.WindowState = FormWindowState.Maximized;
-                }
-                UpdateMaximizeButton(maximizeBtn);
-            };
-
             var closeBtn = new Button
             {
                 Text = "✕",
-                Width = 30,
+                Width = 45,
                 Height = 30,
                 FlatStyle = FlatStyle.Flat,
                 BackColor = BG,
                 ForeColor = Color.Magenta,
-                Font = new Font("Arial", 10, FontStyle.Bold)
+                Font = new Font("Arial", 10, FontStyle.Bold),
+                Margin = Padding.Empty
             };
             closeBtn.FlatAppearance.BorderSize = 0;
-            closeBtn.Click += (s, e) => this.Close();
+            closeBtn.Click += (s, e) => Application.Exit();
 
-            titleBar.Controls.Add(titleLabel);
-            titleBar.Controls.Add(minimizeBtn);
-            titleBar.Controls.Add(maximizeBtn);
-            titleBar.Controls.Add(closeBtn);
-
-            // Position buttons on resize
-            titleBar.Resize += (s, e) =>
+            var controlBox = new FlowLayoutPanel
             {
-                minimizeBtn.Left = titleBar.Width - 120;
-                maximizeBtn.Left = titleBar.Width - 80;
-                closeBtn.Left = titleBar.Width - 40;
-                UpdateMaximizeButton(maximizeBtn);
+                Dock = DockStyle.Right,
+                Width = 100,
+                FlowDirection = FlowDirection.LeftToRight,
+                Padding = new Padding(5, 5, 0, 0),
+                BackColor = Color.Transparent,
+                WrapContents = false
             };
 
-            // Make title bar draggable (except on buttons)
+            controlBox.Controls.Add(minimizeBtn);
+            controlBox.Controls.Add(closeBtn);
+
+            titleBar.Controls.Add(titleLabel);
+            titleBar.Controls.Add(controlBox);
+
+            // Make title bar draggable (except on controls)
             titleBar.MouseDown += (s, e) =>
             {
-                if (e.Button == MouseButtons.Left && !minimizeBtn.Bounds.Contains(e.Location) && !maximizeBtn.Bounds.Contains(e.Location) && !closeBtn.Bounds.Contains(e.Location))
+                if (e.Button == MouseButtons.Left && !controlBox.Bounds.Contains(e.Location))
                 {
                     ReleaseCapture();
                     SendMessage(this.Handle, WM_NCLBUTTONDOWN, HT_CAPTION, 0);
@@ -183,13 +215,15 @@ namespace MusicVault
             };
 
             Controls.Add(titleBar);
+            titleBar.BringToFront(); // Ensure title bar is on top
 
             // ROOT LAYOUT
             var root = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 2,
-                RowCount = 1
+                RowCount = 1,
+                Padding = new Padding(0, 40, 0, 0) // Leave space for title bar
             };
 
             root.BackColor = BG;
@@ -296,6 +330,7 @@ namespace MusicVault
                 Dock = DockStyle.Fill
             };
             songList.DoubleClick += PlaySelected;
+            songList.SelectedIndexChanged += (s, e) => songList.Invalidate();
 
             mainPanel.Controls.Add(songList, 0, 0);
 
@@ -328,54 +363,62 @@ namespace MusicVault
                 }
             };
 
-            // Now Playing Section - Organized Layout
-            var nowPlayingPanel = new TableLayoutPanel
+            // Main Player Container - Album on Left, everything else on Right
+            var playerContainer = new TableLayoutPanel
             {
-                Left = 10,
-                Top = 25,
-                Width = panel.Width - 20,
-                Height = 150,
+                Dock = DockStyle.Fill,
                 BackColor = BG,
                 ColumnCount = 2,
-                RowCount = 2
+                RowCount = 1,
+                Padding = new Padding(10, 10, 10, 10)
             };
 
-            // Configure columns: Left (30%), Right (70%)
-            nowPlayingPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30));
-            nowPlayingPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 70));
-            
-            // Configure rows: Top (60%), Bottom (40%)
-            nowPlayingPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 60));
-            nowPlayingPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 40));
+            playerContainer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
+            playerContainer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
-            // Album Art Section (Top Left)
+            // Album Art Section (Left)
             var albumPanel = new Panel
             {
                 Dock = DockStyle.Fill,
                 BackColor = BG,
-                Padding = new Padding(10)
+                Padding = new Padding(0)
             };
 
             albumArt = new RoundedPictureBox
             {
-                Dock = DockStyle.Fill,
-                BackgroundImage = CreatePlaceholderAlbumArt(150, 150),
+                Width = 140,
+                Height = 140,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left,
+                BackgroundImage = CreatePlaceholderAlbumArt(140, 140),
                 BackgroundImageLayout = ImageLayout.Stretch,
                 BorderStyle = BorderStyle.None,
                 CornerRadius = 15
             };
 
             albumPanel.Controls.Add(albumArt);
-            nowPlayingPanel.Controls.Add(albumPanel, 0, 0);
+            playerContainer.Controls.Add(albumPanel, 0, 0);
 
-            // Info Section (Top Right)
+            // Right Stack (Info -> Seekbar -> Controls)
+            var rightStack = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = BG,
+                ColumnCount = 1,
+                RowCount = 3
+            };
+
+            rightStack.RowStyles.Add(new RowStyle(SizeType.Percent, 45)); // Info
+            rightStack.RowStyles.Add(new RowStyle(SizeType.Percent, 20)); // Seekbar
+            rightStack.RowStyles.Add(new RowStyle(SizeType.Percent, 35)); // Controls
+
+            // Info Section
             var infoPanel = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 BackColor = BG,
                 ColumnCount = 1,
                 RowCount = 3,
-                Padding = new Padding(10)
+                Padding = new Padding(10, 0, 10, 0)
             };
 
             infoPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -418,15 +461,14 @@ namespace MusicVault
             infoPanel.Controls.Add(songTitle, 0, 0);
             infoPanel.Controls.Add(albumLabel, 0, 1);
             infoPanel.Controls.Add(timeLabel, 0, 2);
+            rightStack.Controls.Add(infoPanel, 0, 0);
 
-            nowPlayingPanel.Controls.Add(infoPanel, 1, 0);
-
-            // Seek Bar Section (Bottom - spans both columns)
+            // Seek Bar Section (Middle)
             var seekPanel = new Panel
             {
                 Dock = DockStyle.Fill,
                 BackColor = BG,
-                Padding = new Padding(10)
+                Padding = new Padding(10, 0, 10, 0)
             };
 
             seekBar = new CustomTrackBar
@@ -439,29 +481,24 @@ namespace MusicVault
             seekBar.Scroll += (s, e) => audio.Seek(seekBar.Value);
 
             seekPanel.Controls.Add(seekBar);
-            nowPlayingPanel.Controls.Add(seekPanel, 0, 1);
-            nowPlayingPanel.SetColumnSpan(seekPanel, 2);
+            rightStack.Controls.Add(seekPanel, 0, 1);
 
-            panel.Controls.Add(nowPlayingPanel);
-
-            // Playback Controls Section
+            // Playback Controls Section (Bottom)
             var controlsSection = new TableLayoutPanel
             {
-                Left = 10,
-                Top = 185,
-                Width = panel.Width - 20,
-                Height = 120,
+                Dock = DockStyle.Fill,
                 BackColor = BG,
-                ColumnCount = 3,
-                RowCount = 2
+                ColumnCount = 5,
+                RowCount = 1,
+                Padding = new Padding(0)
             };
 
-            // Configure columns: Playback buttons (60%), Volume (20%), Pitch (20%)
-            controlsSection.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 60));
-            controlsSection.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20));
-            controlsSection.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20));
-            controlsSection.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
-            controlsSection.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+            // Configure columns: Buttons (35%), Volume (15%), Pitch (15%), TrimStart (17.5%), TrimEnd (17.5%)
+            controlsSection.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
+            controlsSection.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 15));
+            controlsSection.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 15));
+            controlsSection.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 17.5f));
+            controlsSection.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 17.5f));
 
             // Playback Buttons Panel
             var playbackPanel = new FlowLayoutPanel
@@ -469,19 +506,22 @@ namespace MusicVault
                 Dock = DockStyle.Fill,
                 FlowDirection = FlowDirection.LeftToRight,
                 BackColor = BG,
-                Padding = new Padding(10),
+                Padding = new Padding(5, 0, 5, 0),
                 WrapContents = false,
                 AutoSize = false
             };
+
+            var btnSize = 40;
+            var btnFont = new Font("Arial", 11, FontStyle.Bold);
 
             var previousBtn = new CircularButton
             {
                 Icon = "⏮",
                 NeonColor = ACCENT_CYAN,
                 BackColor = BG,
-                Font = new Font("Arial", 14, FontStyle.Bold),
-                Width = 60,
-                Height = 60,
+                Font = btnFont,
+                Width = btnSize,
+                Height = btnSize,
                 FlatStyle = FlatStyle.Flat
             };
             previousBtn.FlatAppearance.BorderSize = 0;
@@ -493,9 +533,9 @@ namespace MusicVault
                 Icon = "⏪",
                 NeonColor = ACCENT_BLUE,
                 BackColor = BG,
-                Font = new Font("Arial", 14, FontStyle.Bold),
-                Width = 60,
-                Height = 60,
+                Font = btnFont,
+                Width = btnSize,
+                Height = btnSize,
                 FlatStyle = FlatStyle.Flat
             };
             rewindBtn.FlatAppearance.BorderSize = 0;
@@ -507,9 +547,9 @@ namespace MusicVault
                 Icon = "▶",
                 NeonColor = ACCENT_GREEN,
                 BackColor = BG,
-                Font = new Font("Arial", 16, FontStyle.Bold),
-                Width = 60,
-                Height = 60,
+                Font = new Font("Arial", 12, FontStyle.Bold),
+                Width = btnSize,
+                Height = btnSize,
                 FlatStyle = FlatStyle.Flat
             };
             playPauseBtn.FlatAppearance.BorderSize = 0;
@@ -521,9 +561,9 @@ namespace MusicVault
                 Icon = "⏩",
                 NeonColor = ACCENT_BLUE,
                 BackColor = BG,
-                Font = new Font("Arial", 14, FontStyle.Bold),
-                Width = 60,
-                Height = 60,
+                Font = btnFont,
+                Width = btnSize,
+                Height = btnSize,
                 FlatStyle = FlatStyle.Flat
             };
             fastforwardBtn.FlatAppearance.BorderSize = 0;
@@ -535,9 +575,9 @@ namespace MusicVault
                 Icon = "⏭",
                 NeonColor = ACCENT_CYAN,
                 BackColor = BG,
-                Font = new Font("Arial", 14, FontStyle.Bold),
-                Width = 60,
-                Height = 60,
+                Font = btnFont,
+                Width = btnSize,
+                Height = btnSize,
                 FlatStyle = FlatStyle.Flat
             };
             nextBtn.FlatAppearance.BorderSize = 0;
@@ -549,9 +589,9 @@ namespace MusicVault
                 Icon = "⟲",
                 NeonColor = ACCENT_YELLOW,
                 BackColor = BG,
-                Font = new Font("Arial", 14, FontStyle.Bold),
-                Width = 60,
-                Height = 60,
+                Font = btnFont,
+                Width = btnSize,
+                Height = btnSize,
                 FlatStyle = FlatStyle.Flat
             };
             loopBtn.FlatAppearance.BorderSize = 0;
@@ -567,14 +607,14 @@ namespace MusicVault
                 BackColor = BG,
                 ColumnCount = 1,
                 RowCount = 2,
-                Padding = new Padding(10)
+                Padding = new Padding(2)
             };
 
             var volLabel = new Label
             {
                 Dock = DockStyle.Fill,
-                Text = "VOLUME",
-                Font = new Font("Segoe UI", 9, FontStyle.Bold),
+                Text = "VOL",
+                Font = new Font("Segoe UI", 7, FontStyle.Bold),
                 ForeColor = ACCENT_ORANGE,
                 TextAlign = ContentAlignment.MiddleCenter
             };
@@ -586,14 +626,10 @@ namespace MusicVault
                 Maximum = 100,
                 Value = 100
             };
-            volumeBar.Scroll += (s, e) =>
-            {
-                audio.Volume = volumeBar.Value / 100f;
-            };
+            volumeBar.Scroll += (s, e) => audio.Volume = volumeBar.Value / 100f;
 
             volumePanel.Controls.Add(volLabel, 0, 0);
             volumePanel.Controls.Add(volumeBar, 0, 1);
-
             controlsSection.Controls.Add(volumePanel, 1, 0);
 
             // Pitch Panel
@@ -603,14 +639,14 @@ namespace MusicVault
                 BackColor = BG,
                 ColumnCount = 1,
                 RowCount = 2,
-                Padding = new Padding(10)
+                Padding = new Padding(2)
             };
 
             var pitchLabel = new Label
             {
                 Dock = DockStyle.Fill,
                 Text = "PITCH",
-                Font = new Font("Segoe UI", 9, FontStyle.Bold),
+                Font = new Font("Segoe UI", 7, FontStyle.Bold),
                 ForeColor = ACCENT_PURPLE,
                 TextAlign = ContentAlignment.MiddleCenter
             };
@@ -626,19 +662,96 @@ namespace MusicVault
 
             pitchPanel.Controls.Add(pitchLabel, 0, 0);
             pitchPanel.Controls.Add(pitchBar, 0, 1);
-
             controlsSection.Controls.Add(pitchPanel, 2, 0);
 
-            panel.Controls.Add(controlsSection);
-
-            // Handle resize to adjust element sizes
-            panel.Resize += (s, e) =>
+            // Trim Start Panel
+            var trimStartPanel = new TableLayoutPanel
             {
-                nowPlayingPanel.Width = panel.Width - 20;
-                controlsSection.Width = panel.Width - 20;
+                Dock = DockStyle.Fill,
+                BackColor = BG,
+                ColumnCount = 1,
+                RowCount = 2,
+                Padding = new Padding(2)
             };
 
+            trimStartLabel = new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = "START",
+                Font = new Font("Segoe UI", 7, FontStyle.Bold),
+                ForeColor = ACCENT_ORANGE,
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+
+            trimStartBar = new CustomTrackBar
+            {
+                Dock = DockStyle.Fill,
+                Minimum = 0,
+                Maximum = 100,
+                Value = 0
+            };
+            trimStartBar.Scroll += (s, e) => {
+                if (current != null) {
+                    current.TrimStart = (long)((trimStartBar.Value / 100f) * audio.Duration);
+                    trimStartLabel.Text = $"S: {FormatTime(current.TrimStart)}";
+                    SaveSongs();
+                }
+            };
+
+            trimStartPanel.Controls.Add(trimStartLabel, 0, 0);
+            trimStartPanel.Controls.Add(trimStartBar, 0, 1);
+            controlsSection.Controls.Add(trimStartPanel, 3, 0);
+
+            // Trim End Panel
+            var trimEndPanel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = BG,
+                ColumnCount = 1,
+                RowCount = 2,
+                Padding = new Padding(2)
+            };
+
+            trimEndLabel = new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = "END",
+                Font = new Font("Segoe UI", 7, FontStyle.Bold),
+                ForeColor = ACCENT_PURPLE,
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+
+            trimEndBar = new CustomTrackBar
+            {
+                Dock = DockStyle.Fill,
+                Minimum = 0,
+                Maximum = 100,
+                Value = 100
+            };
+            trimEndBar.Scroll += (s, e) => {
+                if (current != null) {
+                    current.TrimEnd = (long)((trimEndBar.Value / 100f) * audio.Duration);
+                    trimEndLabel.Text = $"E: {FormatTime(current.TrimEnd <= 0 ? audio.Duration : current.TrimEnd)}";
+                    SaveSongs();
+                }
+            };
+
+            trimEndPanel.Controls.Add(trimEndLabel, 0, 0);
+            trimEndPanel.Controls.Add(trimEndBar, 0, 1);
+            controlsSection.Controls.Add(trimEndPanel, 4, 0);
+
+            rightStack.Controls.Add(controlsSection, 0, 2);
+            playerContainer.Controls.Add(rightStack, 1, 0);
+
+            panel.Controls.Add(playerContainer);
+
             return panel;
+        }
+
+        private string FormatTime(long milliseconds)
+        {
+            var ts = TimeSpan.FromMilliseconds(milliseconds);
+            return $"{(int)ts.TotalMinutes:D2}:{ts.Seconds:D2}";
         }
 
         private NeonButton CreateNeonButton(string text, Color color, int x = 0, int y = 0)
@@ -649,10 +762,9 @@ namespace MusicVault
                 NeonColor = color,
                 BackColor = BG,
                 ForeColor = Color.White,
-                Font = new Font("Arial", 10, FontStyle.Bold),
-                FlatStyle = FlatStyle.Flat,
-                Width = 160,
-                Height = 40,
+                Font = new Font("Segoe UI", 10, FontStyle.Bold),
+                Width = 250,
+                Height = 45,
                 Left = x,
                 Top = y
             };
@@ -745,20 +857,56 @@ namespace MusicVault
 
         private void PlaySelected(object? s, EventArgs e)
         {
-            if (songList.SelectedIndex < 0) return;
+            if (songList.SelectedIndex < 0 || isChangingSong) return;
 
-            audio.Stop();
-            current = songs[songList.SelectedIndex];
+            try 
+            {
+                isChangingSong = true;
+                
+                // Stop any existing playback first
+                audio.Stop();
 
-            audio.Play(current.FilePath, pitchBar.Value, 0, -1);
+                // Get the song from the ListBox items (it might be filtered)
+                var selectedSong = songList.Items[songList.SelectedIndex] as Song;
+                if (selectedSong == null) return;
+                
+                current = selectedSong;
 
-            seekBar.Maximum = (int)audio.Duration;
-            songTitle.Text = current.Title;
-            albumLabel.Text = current.Album ?? "Unknown Album";
-            ((CircularButton)playPauseBtn).Icon = "⏸";
-            playPauseBtn.Invalidate();
-            statusLabel.Text = "Now Playing";
-            songList.Invalidate();
+                // Initialize trim values if not set
+                if (current.TrimEnd <= 0) current.TrimEnd = -1;
+
+                audio.Play(current.FilePath, pitchBar.Value, current.TrimStart, current.TrimEnd);
+
+                seekBar.Maximum = (int)audio.Duration;
+                
+                // Update trim controls
+                if (audio.Duration > 0)
+                {
+                    trimStartBar.Value = (int)((current.TrimStart / (float)audio.Duration) * 100);
+                    long actualEnd = current.TrimEnd <= 0 ? audio.Duration : current.TrimEnd;
+                    trimEndBar.Value = (int)((actualEnd / (float)audio.Duration) * 100);
+                }
+                trimStartLabel.Text = $"START: {FormatTime(current.TrimStart)}";
+                trimEndLabel.Text = $"END: {FormatTime(current.TrimEnd <= 0 ? audio.Duration : current.TrimEnd)}";
+
+                songTitle.Text = current.Title;
+                albumLabel.Text = current.Album ?? "Unknown Album";
+                ((CircularButton)playPauseBtn).Icon = "⏸";
+                playPauseBtn.Invalidate();
+                statusLabel.Text = "Now Playing";
+                songList.Invalidate();
+            }
+            finally
+            {
+                // Small delay before allowing another song change to prevent rapid skipping
+                Timer resetTimer = new Timer { Interval = 200 };
+                resetTimer.Tick += (sender, args) => {
+                    isChangingSong = false;
+                    resetTimer.Stop();
+                    resetTimer.Dispose();
+                };
+                resetTimer.Start();
+            }
         }
 
         private void PlayPauseClick(object? s, EventArgs e)
@@ -862,13 +1010,17 @@ namespace MusicVault
 
             if (i < songList.Items.Count - 1)
             {
-                songList.SelectedIndex++;
-                PlaySelected(null, EventArgs.Empty);
+                this.Invoke((MethodInvoker)delegate {
+                    songList.SelectedIndex++;
+                    PlaySelected(null, EventArgs.Empty);
+                });
             }
             else if (mode == PlayMode.RepeatAll)
             {
-                songList.SelectedIndex = 0;
-                PlaySelected(null, EventArgs.Empty);
+                this.Invoke((MethodInvoker)delegate {
+                    songList.SelectedIndex = 0;
+                    PlaySelected(null, EventArgs.Empty);
+                });
             }
         }
 
@@ -885,19 +1037,21 @@ namespace MusicVault
 
             var searchText = textBox.Text.ToLower();
             
-            // Clear current list
+            // Filter the master list
+            var filteredSongs = songs.Where(song => 
+                string.IsNullOrEmpty(searchText) || 
+                song.Title.ToLower().Contains(searchText) ||
+                (song.Album?.ToLower().Contains(searchText) ?? false)
+            ).ToList();
+
+            // Only update if the list actually changed to prevent flickering
+            songList.BeginUpdate();
             songList.Items.Clear();
-            
-            // Filter and add songs
-            foreach (var song in songs)
+            foreach (var song in filteredSongs)
             {
-                if (string.IsNullOrEmpty(searchText) || 
-                    song.Title.ToLower().Contains(searchText) ||
-                    (song.Album?.ToLower().Contains(searchText) ?? false))
-                {
-                    songList.Items.Add(song);
-                }
+                songList.Items.Add(song);
             }
+            songList.EndUpdate();
         }
     }
 
@@ -905,47 +1059,63 @@ namespace MusicVault
     public class NeonButton : Button
     {
         public Color NeonColor { get; set; } = Color.Cyan;
+        private bool isHovered = false;
+
+        public NeonButton()
+        {
+            FlatStyle = FlatStyle.Flat;
+            FlatAppearance.BorderSize = 0;
+            TextAlign = ContentAlignment.MiddleLeft;
+            Padding = new Padding(15, 0, 0, 0);
+            Cursor = Cursors.Hand;
+        }
 
         protected override void OnPaint(PaintEventArgs e)
         {
+            // Background - Always clear first to prevent artifacts
             e.Graphics.Clear(BackColor);
+
+            if (isHovered)
+            {
+                using (var brush = new SolidBrush(Color.FromArgb(40, NeonColor.R, NeonColor.G, NeonColor.B)))
+                {
+                    e.Graphics.FillRectangle(brush, ClientRectangle);
+                }
+            }
+
             e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-
-            // Border glow
-            using (var pen = new Pen(NeonColor, 2))
-            {
-                var rect = new Rectangle(0, 0, Width - 1, Height - 1);
-                e.Graphics.DrawRectangle(pen, rect);
-            }
-
-            // Inner glow
-            using (var pen = new Pen(Color.FromArgb(100, NeonColor.R, NeonColor.G, NeonColor.B), 1))
-            {
-                var rect = new Rectangle(2, 2, Width - 5, Height - 5);
-                e.Graphics.DrawRectangle(pen, rect);
-            }
+            e.Graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
             // Text
             using (var brush = new SolidBrush(NeonColor))
             {
                 var textSize = e.Graphics.MeasureString(Text, Font);
-                var x = (Width - textSize.Width) / 2;
+                var x = Padding.Left;
                 var y = (Height - textSize.Height) / 2;
                 e.Graphics.DrawString(Text, Font, brush, x, y);
+            }
+
+            // Left accent line (optional, for menu look)
+            if (isHovered)
+            {
+                using (var pen = new Pen(NeonColor, 3))
+                {
+                    e.Graphics.DrawLine(pen, 0, 0, 0, Height);
+                }
             }
         }
 
         protected override void OnMouseEnter(EventArgs e)
         {
             base.OnMouseEnter(e);
-            BackColor = Color.FromArgb(40, 40, 40);
+            isHovered = true;
             Invalidate();
         }
 
         protected override void OnMouseLeave(EventArgs e)
         {
             base.OnMouseLeave(e);
-            BackColor = Color.FromArgb(20, 20, 20);
+            isHovered = false;
             Invalidate();
         }
     }
@@ -959,30 +1129,41 @@ namespace MusicVault
         {
             e.Graphics.Clear(BackColor);
             e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            e.Graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
-            int size = Math.Min(Width, Height);
+            int padding = 4;
+            int size = Math.Min(Width, Height) - (padding * 2);
             int x = (Width - size) / 2;
             int y = (Height - size) / 2;
 
+            var rect = new Rectangle(x, y, size, size);
+
             // Draw circle border
-            using (var pen = new Pen(NeonColor, 2))
+            using (var pen = new Pen(NeonColor, 2.5f))
             {
-                e.Graphics.DrawEllipse(pen, x, y, size - 1, size - 1);
+                e.Graphics.DrawEllipse(pen, rect);
             }
 
             // Draw inner glow
-            using (var pen = new Pen(Color.FromArgb(100, NeonColor.R, NeonColor.G, NeonColor.B), 1))
+            using (var pen = new Pen(Color.FromArgb(80, NeonColor.R, NeonColor.G, NeonColor.B), 1.5f))
             {
-                e.Graphics.DrawEllipse(pen, x + 2, y + 2, size - 5, size - 5);
+                var innerRect = rect;
+                innerRect.Inflate(-2, -2);
+                e.Graphics.DrawEllipse(pen, innerRect);
             }
 
-            // Draw icon
+            // Draw icon - use a more precise centering method
             using (var brush = new SolidBrush(NeonColor))
             {
-                var textSize = e.Graphics.MeasureString(Icon, Font);
-                var iconX = (Width - textSize.Width) / 2;
-                var iconY = (Height - textSize.Height) / 2;
-                e.Graphics.DrawString(Icon, Font, brush, iconX, iconY);
+                using (var sf = new StringFormat())
+                {
+                    sf.Alignment = StringAlignment.Center;
+                    sf.LineAlignment = StringAlignment.Center;
+                    
+                    // Slightly adjust Y for better visual centering of symbols
+                    var textRect = new RectangleF(0, 1, Width, Height);
+                    e.Graphics.DrawString(Icon, Font, brush, textRect, sf);
+                }
             }
         }
 
@@ -1072,34 +1253,45 @@ namespace MusicVault
             BorderStyle = BorderStyle.None;
             DrawMode = DrawMode.OwnerDrawVariable;
             ItemHeight = 80;
+            DoubleBuffered = true;
         }
 
         protected override void OnDrawItem(DrawItemEventArgs e)
         {
-            if (e.Index < 0) return;
+            if (e.Index < 0 || e.Index >= Items.Count) return;
 
             var song = Items[e.Index] as Song;
             if (song == null) return;
 
+            var g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            // Use SelectedIndex directly for more reliable highlighting
+            bool isSelected = (e.Index == SelectedIndex);
+            
             // Background
-            if ((e.State & DrawItemState.Selected) == DrawItemState.Selected)
+            Color bgColor = isSelected ? Color.FromArgb(80, 255, 0, 115) : Color.FromArgb(20, 20, 20);
+            using (var bgBrush = new SolidBrush(bgColor))
             {
-                e.Graphics.FillRectangle(new SolidBrush(Color.FromArgb(50, 50, 100)), e.Bounds);
-                using (var pen = new Pen(Color.FromArgb(0, 208, 255), 2))
+                g.FillRectangle(bgBrush, e.Bounds);
+            }
+
+            if (isSelected)
+            {
+                using (var pen = new Pen(Color.FromArgb(255, 0, 115), 3)) // Thicker neon border
                 {
-                    e.Graphics.DrawRectangle(pen, e.Bounds);
+                    var borderRect = e.Bounds;
+                    borderRect.Inflate(-1, -1);
+                    g.DrawRectangle(pen, borderRect);
                 }
             }
             else
             {
-                e.Graphics.FillRectangle(new SolidBrush(Color.FromArgb(20, 20, 20)), e.Bounds);
                 using (var pen = new Pen(Color.FromArgb(40, 40, 40), 1))
                 {
-                    e.Graphics.DrawRectangle(pen, e.Bounds);
+                    g.DrawRectangle(pen, e.Bounds);
                 }
             }
-
-            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
             // Album Art Placeholder
             var albumRect = new Rectangle(e.Bounds.Left + 10, e.Bounds.Top + 5, 70, 70);
@@ -1109,33 +1301,32 @@ namespace MusicVault
                 Color.FromArgb(0, 208, 255),
                 45))
             {
-                e.Graphics.FillRectangle(brush, albumRect);
+                g.FillRectangle(brush, albumRect);
             }
 
             using (var font = new Font("Arial Black", 20, FontStyle.Bold))
             {
-                var textSize = e.Graphics.MeasureString("♪", font);
+                var textSize = g.MeasureString("♪", font);
                 var x = albumRect.Left + (albumRect.Width - textSize.Width) / 2;
                 var y = albumRect.Top + (albumRect.Height - textSize.Height) / 2;
-                e.Graphics.DrawString("♪", font, new SolidBrush(Color.FromArgb(20, 20, 20)), x, y);
+                g.DrawString("♪", font, new SolidBrush(Color.FromArgb(20, 20, 20)), x, y);
             }
 
             // Song Info
             var titleRect = new Rectangle(e.Bounds.Left + 90, e.Bounds.Top + 10, e.Bounds.Width - 110, 25);
             using (var font = new Font("Arial", 12, FontStyle.Bold))
             {
-                e.Graphics.DrawString(song.Title, font, new SolidBrush(Color.FromArgb(255, 0, 115)), titleRect);
+                g.DrawString(song.Title, font, new SolidBrush(Color.FromArgb(255, 0, 115)), titleRect);
             }
 
             var albumRect2 = new Rectangle(e.Bounds.Left + 90, e.Bounds.Top + 38, e.Bounds.Width - 110, 20);
             using (var font = new Font("Segoe UI", 10))
             {
-                e.Graphics.DrawString(song.Album ?? "Unknown Album", font, new SolidBrush(Color.FromArgb(0, 208, 255)), albumRect2);
+                g.DrawString(song.Album ?? "Unknown Album", font, new SolidBrush(Color.FromArgb(0, 208, 255)), albumRect2);
             }
 
             var durationText = "2:45"; // Placeholder
-            var durationSize = e.Graphics.MeasureString(durationText, Font);
-            e.Graphics.DrawString(durationText, Font, new SolidBrush(Color.FromArgb(38, 255, 0)), 
+            g.DrawString(durationText, Font, new SolidBrush(Color.FromArgb(38, 255, 0)), 
                 e.Bounds.Right - 40, e.Bounds.Top + 30);
         }
 

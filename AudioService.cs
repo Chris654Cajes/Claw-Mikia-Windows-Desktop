@@ -33,9 +33,10 @@ namespace MusicVault.Services
 
         public void Play(string path, int pitchSemitones, long start, long end)
         {
-            Stop(); // prevent overlap
+            Stop(); // This sets manualStop = true and disposes everything
 
-            manualStop = false;
+            // Ensure manualStop remains true long enough for any pending PlaybackStopped events to fire
+            manualStop = true; 
 
             reader = new AudioFileReader(path);
 
@@ -54,12 +55,17 @@ namespace MusicVault.Services
             output = new WaveOutEvent();
             output.Init(pitch);
 
+            // We reset manualStop to false ONLY when we are actually starting the new song's playback
+            manualStop = false;
+
             output.PlaybackStopped += (s, e) =>
             {
+                // If manualStop is true, it means we stopped the song ourselves (e.g. clicked Next)
+                // so we don't want to trigger the "Next Song" logic in the UI.
                 if (!manualStop)
+                {
                     PlaybackStopped?.Invoke();
-
-                manualStop = false;
+                }
             };
 
             output.Play();
