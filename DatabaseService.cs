@@ -85,9 +85,9 @@ namespace MusicVault.Services
                     const string query = @"
                         INSERT OR REPLACE INTO Songs 
                         (Title, Artist, Album, FilePath, FolderPath, FolderName, Duration, 
-                         FileSize, DateAdded, IsFavorite, PlayCount)
+                         FileSize, DateAdded, IsFavorite, PlayCount, AlbumArtUrl, MetadataFetched)
                         VALUES (@title, @artist, @album, @filePath, @folderPath, @folderName, 
-                               @duration, @fileSize, @dateAdded, @isFavorite, @playCount)";
+                               @duration, @fileSize, @dateAdded, @isFavorite, @playCount, @albumArtUrl, @metadataFetched)";
 
                     using (var cmd = new SQLiteCommand(query, connection))
                     {
@@ -102,6 +102,8 @@ namespace MusicVault.Services
                         cmd.Parameters.AddWithValue("@dateAdded", song.DateAdded);
                         cmd.Parameters.AddWithValue("@isFavorite", song.IsFavorite ? 1 : 0);
                         cmd.Parameters.AddWithValue("@playCount", song.PlayCount);
+                        cmd.Parameters.AddWithValue("@albumArtUrl", song.AlbumArtUrl ?? string.Empty);
+                        cmd.Parameters.AddWithValue("@metadataFetched", song.MetadataFetched ? 1 : 0);
 
                         cmd.ExecuteNonQuery();
                     }
@@ -257,6 +259,37 @@ namespace MusicVault.Services
             }
         }
 
+        public void UpdateSongMetadata(Song song)
+        {
+            try
+            {
+                using (var connection = new SQLiteConnection(_connectionString))
+                {
+                    connection.Open();
+                    const string query = @"
+                        UPDATE Songs 
+                        SET Title = @title, Artist = @artist, Album = @album, 
+                            AlbumArtUrl = @albumArtUrl, MetadataFetched = @metadataFetched 
+                        WHERE Id = @id";
+
+                    using (var cmd = new SQLiteCommand(query, connection))
+                    {
+                        cmd.Parameters.AddWithValue("@title", song.Title ?? string.Empty);
+                        cmd.Parameters.AddWithValue("@artist", song.Artist ?? string.Empty);
+                        cmd.Parameters.AddWithValue("@album", song.Album ?? string.Empty);
+                        cmd.Parameters.AddWithValue("@albumArtUrl", song.AlbumArtUrl ?? string.Empty);
+                        cmd.Parameters.AddWithValue("@metadataFetched", song.MetadataFetched ? 1 : 0);
+                        cmd.Parameters.AddWithValue("@id", song.Id);
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"UpdateSongMetadata error: {ex.Message}");
+            }
+        }
+
         public int GetTotalSongCount()
         {
             try
@@ -313,6 +346,7 @@ namespace MusicVault.Services
                 DateAdded = reader.GetDateTime(reader.GetOrdinal("DateAdded")),
                 IsFavorite = reader.GetInt32(reader.GetOrdinal("IsFavorite")) == 1,
                 PlayCount = reader.GetInt32(reader.GetOrdinal("PlayCount")),
+                AlbumArtUrl = reader.IsDBNull(reader.GetOrdinal("AlbumArtUrl")) ? string.Empty : reader.GetString(reader.GetOrdinal("AlbumArtUrl")),
                 MetadataFetched = reader.GetInt32(reader.GetOrdinal("MetadataFetched")) == 1
             };
         }

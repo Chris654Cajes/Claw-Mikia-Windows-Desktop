@@ -5,6 +5,7 @@ using System.Drawing.Drawing2D;
 using System.Linq;
 using System.Windows.Forms;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using MusicVault.Models;
 using MusicVault.Services;
 
@@ -31,6 +32,9 @@ namespace MusicVault
         private List<Song> songs = new();
         private Song? current;
         private AudioService audio = new();
+        private MetadataService metadataService = new();
+        private LibraryService libraryService;
+        private DatabaseService databaseService = new();
 
         // Neon Colors
         private static readonly Color BG = Color.FromArgb(20, 20, 20);           // #141414
@@ -115,6 +119,7 @@ namespace MusicVault
 
         public MainForm()
         {
+            libraryService = new LibraryService(databaseService);
             Text = "Claw Mikia PRO";
             BackColor = BG;
             DoubleBuffered = true;
@@ -122,7 +127,7 @@ namespace MusicVault
             
             BuildUI();
 
-            this.Load += (s, e) =>
+            this.Load += async (s, e) =>
             {
                 var working = Screen.FromHandle(this.Handle).WorkingArea;
                 this.MaximizedBounds = working;
@@ -131,6 +136,9 @@ namespace MusicVault
                 // Apply dark theme to title bar and controls
                 ApplyDarkTheme(this.Handle);
                 ApplyThemeToControls(this);
+
+                // Auto-update albums from internet if connected
+                _ = UpdateAllAlbumsFromInternetAsync();
             };
 
             this.Resize += (s, e) =>
@@ -878,24 +886,64 @@ namespace MusicVault
             if (dialog.ShowDialog() == DialogResult.OK)
             {
                 var files = System.IO.Directory.GetFiles(dialog.SelectedPath, "*.*", System.IO.SearchOption.AllDirectories);
+                int count = 0;
 
                 foreach (var f in files)
                 {
-                    if (f.EndsWith(".mp3") || f.EndsWith(".wav"))
+                    if (f.EndsWith(".mp3") || f.EndsWith(".wav") || f.EndsWith(".flac"))
                     {
-                        var song = new Song
-                        {
-                            Title = System.IO.Path.GetFileNameWithoutExtension(f),
-                            FilePath = f
-                        };
-
+                        // Use LibraryService to extract metadata from tags
+                        var song = libraryService.ExtractMetadata(f);
+                        
                         songs.Add(song);
                         songList.Items.Add(song);
+                        count++;
                     }
                 }
 
                 SaveSongs();
-                statusLabel.Text = $"Added {files.Length} songs";
+                statusLabel.Text = $"Added {count} songs";
+                
+                // Trigger background update for new songs
+                _ = UpdateAllAlbumsFromInternetAsync();
+            }
+        }
+
+        private async Task UpdateAllAlbumsFromInternetAsync()
+        {
+            if (!MetadataService.IsInternetAvailable()) return;
+
+            statusLabel.Text = "Updating album metadata...";
+            int updatedCount = 0;
+
+            // Make a copy to avoid modification exceptions
+            var songsToUpdate = songs.Where(s => !s.MetadataFetched || string.IsNullOrEmpty(s.AlbumArtUrl)).ToList();
+
+            foreach (var song in songsToUpdate)
+            {
+                if (await metadataService.UpdateAlbumMetadataAsync(song))
+                {
+                    updatedCount++;
+                    
+                    // UI Thread update
+                    this.Invoke((MethodInvoker)delegate {
+                        songList.Invalidate();
+                        if (current != null && current.Id == song.Id)
+                        {
+                            UpdateUI(null, EventArgs.Empty);
+                        }
+                    });
+                }
+            }
+
+            if (updatedCount > 0)
+            {
+                SaveSongs();
+                statusLabel.Text = $"Updated {updatedCount} albums from internet";
+            }
+            else
+            {
+                statusLabel.Text = "Ready";
             }
         }
 
@@ -952,6 +1000,31 @@ namespace MusicVault
 
                 songTitle.Text = current.Title;
                 albumLabel.Text = current.Album ?? "Unknown Album";
+                
+                // Load album art if URL is present
+                if (!string.IsNullOrEmpty(current.AlbumArtUrl))
+                {
+                    _ = Task.Run(() => {
+                        try {
+                            var request = System.Net.WebRequest.Create(current.AlbumArtUrl);
+                            using var response = request.GetResponse();
+                            using var stream = response.GetResponseStream();
+                            var bmp = new Bitmap(stream);
+                            this.Invoke((MethodInvoker)delegate {
+                                albumArt.BackgroundImage = bmp;
+                            });
+                        } catch {
+                            this.Invoke((MethodInvoker)delegate {
+                                albumArt.BackgroundImage = CreatePlaceholderAlbumArt(140, 140);
+                            });
+                        }
+                    });
+                }
+                else
+                {
+                    albumArt.BackgroundImage = CreatePlaceholderAlbumArt(140, 140);
+                }
+
                 ((CircularButton)playPauseBtn).Icon = "⏸";
                 playPauseBtn.Invalidate();
                 statusLabel.Text = "Now Playing";

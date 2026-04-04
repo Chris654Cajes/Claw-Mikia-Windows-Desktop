@@ -61,7 +61,7 @@ namespace MusicVault.Services
             }
         }
 
-        private Song ExtractMetadata(string filePath)
+        public Song ExtractMetadata(string filePath)
         {
             var song = new Song
             {
@@ -87,7 +87,7 @@ namespace MusicVault.Services
                     : "Unknown Album";
                     
                 song.Duration = (long)file.Properties.Duration.TotalMilliseconds;
-                song.MetadataFetched = true;
+                song.MetadataFetched = false; // Set to false to trigger online update
             }
             catch
             {
